@@ -5,7 +5,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use ca::{create_and_save_ca, create_and_save_key, load_ca_from_path};
 use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use std::{collections::HashMap, fs, net::SocketAddr, path::{Path as StdPath, PathBuf}, pin::Pin};
+use std::{collections::HashMap, fs, net::SocketAddr, path::{Path as StdPath, PathBuf}};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -15,7 +15,7 @@ use tower_http::cors::{CorsLayer, Any};
 
 mod ca;
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Debug, Clone)]
 struct KeyPairInfo {
     name: String,
     ca: Option<String>,
@@ -28,6 +28,7 @@ struct GenerateParams {
     name: String,
     domain: String,
     folder: Option<String>,
+    client: Option<bool>,
 }
 
 type KeyStore = Arc<RwLock<HashMap<String, KeyPairInfo>>>;
@@ -74,19 +75,22 @@ pub async fn load_keypairs(cert_dir: &str) -> HashMap<String, KeyPairInfo> {
             while let Ok(Some(entry)) = entries.next_entry().await {
                 let entry_path = entry.path();
                 if entry_path.is_file() {
-                    let stem = entry_path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
-                    let key_path = entry_path.with_extension("key");
-                    if fs::try_exists(&key_path).await.unwrap_or(false) {
-                        let mut chunks = path.iter().skip(2).filter_map(|s| s.to_str()).collect::<Vec<_>>();
-                        chunks.push(&stem);
-                        let name = chunks.join("-");
 
-                        map.insert(name.clone(), KeyPairInfo {
-                            name,
-                            ca: if ca_present { folder_name.clone() } else { parent_name.clone() },
-                            cert_path: entry_path.to_string_lossy().to_string(),
-                            key_path: key_path.to_string_lossy().to_string(),
-                        });
+                    if entry_path.extension().map(|o| o.to_str()).flatten() == Some("cert") {
+                        let stem = entry_path.file_stem().map(|s| s.to_string_lossy()).unwrap_or_default();
+                        let key_path = entry_path.with_extension("key");
+                        if fs::try_exists(&key_path).await.unwrap_or(false) {
+                            let mut chunks = path.iter().skip(2).filter_map(|s| s.to_str()).collect::<Vec<_>>();
+                            chunks.push(&stem);
+                            let name = chunks.join("-");
+
+                            map.insert(name.clone(), KeyPairInfo {
+                                name,
+                                ca: if ca_present { folder_name.clone() } else { parent_name.clone() },
+                                cert_path: entry_path.to_string_lossy().to_string(),
+                                key_path: key_path.to_string_lossy().to_string(),
+                            });
+                        }
                     }
                 }
             }
@@ -105,6 +109,7 @@ async fn list_keys(store: KeyStore) -> Json<Vec<KeyPairInfo>> {
 async fn download_cert(Path(name): Path<String>, store: KeyStore) -> Response {
     if let Some(info) = store.read().await.get(&name) {
         if let Ok(bytes) = fs::read(&info.cert_path) {
+            println!("{:?}", info);
             return (
                 [(header::CONTENT_TYPE, "application/x-pem-file"),
                 (header::CONTENT_DISPOSITION, &format!("attachment; filename=\"{}.cert\"", name))],
@@ -130,6 +135,8 @@ async fn download_key(Path(name): Path<String>, store: KeyStore) -> Response {
 
 
 async fn generate_keypair(Query(params): Query<GenerateParams>, store: KeyStore) -> Response {
+    println!("Generating cert/key {} - Client: {} Domain: {} Folder: {:?}", params.name, params.client.unwrap_or_default(), params.domain, params.folder);
+
     let base = "./certs";
     let folder = params.folder.unwrap_or_else(|| "".into());
     let path = if folder.is_empty() {
@@ -152,7 +159,7 @@ async fn generate_keypair(Query(params): Query<GenerateParams>, store: KeyStore)
         }
     };
 
-    if let Err(why) = create_and_save_key(path, &params.name, &params.domain, &ca).await {
+    if let Err(why) = create_and_save_key(path, &params.name, &params.domain, params.client.unwrap_or_default(), &ca).await {
         return Response::builder().status(StatusCode::INTERNAL_SERVER_ERROR).body(format!("Failed to create key: {}", why).into()).unwrap()
     }
 
@@ -179,7 +186,7 @@ async fn try_load_server_ssl_or_create<'a>() -> (Vec<CertificateDer<'a>>, Privat
             create_and_save_ca(ca_path).await.expect("Failed to create and save new CA")
         };
 
-        create_and_save_key(ca_path, "server", "localhost", &ca).await.expect("Failed to save server.key and server.cert");
+        create_and_save_key(ca_path, "server", "localhost", false, &ca).await.expect("Failed to save server.key and server.cert");
 
         let cert = CertificateDer::from_pem_file("certs/server.cert").expect("Just created this cert");
         let key = PrivateKeyDer::from_pem_file("certs/server.key").expect("Just created this key");

@@ -28,7 +28,7 @@
   };
 
   const copyCurl = (name: string) => {
-    const curl = `curl -O https://localhost:6969/${name}/cert -O https://localhost:6969/${name}/key`;
+    const curl = `curl -k https://localhost:6969/${name}/cert > ${name}.cert; curl -k https://localhost:6969/${name}/key > ${name}.key`;
     navigator.clipboard.writeText(curl);
   };
 

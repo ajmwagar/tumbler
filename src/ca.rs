@@ -25,11 +25,11 @@ pub async fn load_ca_from_path(path: &Path) -> Option<(Certificate, KeyPair)> {
 
 }
 
-pub async fn create_and_save_key<P: AsRef<Path>>(path: P, name: &str, domain: &str, ca: &(Certificate, KeyPair)) -> io::Result<(Certificate, KeyPair)> {
+pub async fn create_and_save_key<P: AsRef<Path>>(path: P, name: &str, domain: &str, client: bool, ca: &(Certificate, KeyPair)) -> io::Result<(Certificate, KeyPair)> {
 
-    let (cert, key_pair) = new_end_entity(domain, &ca.0, &ca.1);
+    let (cert, key_pair) = new_end_entity(domain, &ca.0, &ca.1, client);
 
-    save_key_at_path(path, name, &ca.1, &ca.0).await?;
+    save_key_at_path(path, name, &key_pair, &cert).await?;
 
     Ok((cert, key_pair))
 }
@@ -72,9 +72,14 @@ pub fn new_ca() -> (Certificate, KeyPair) {
         DnType::CountryName,
         PrintableString("US".try_into().unwrap()),
     );
+    params.distinguished_name.push(
+        DnType::CommonName,
+        PrintableString("Tumbler Generated Cert".try_into().unwrap()),
+    );
     params
         .distinguished_name
         .push(DnType::OrganizationName, "Tumbler");
+
     params.key_usages.push(KeyUsagePurpose::DigitalSignature);
     params.key_usages.push(KeyUsagePurpose::KeyCertSign);
     params.key_usages.push(KeyUsagePurpose::CrlSign);
@@ -86,18 +91,26 @@ pub fn new_ca() -> (Certificate, KeyPair) {
     (params.self_signed(&key_pair).unwrap(), key_pair)
 }
 
-pub fn new_end_entity(domain: &str, ca: &Certificate, ca_key: &KeyPair) -> (Certificate, KeyPair) {
+pub fn new_end_entity(domain: &str, ca: &Certificate, ca_key: &KeyPair, client: bool) -> (Certificate, KeyPair) {
+    println!("End Entity - {}", domain);
     let mut params = CertificateParams::new(vec![domain.into()]).expect("we know the name is valid");
     let (yesterday, tomorrow) = validity_period();
+
+    params.is_ca = IsCa::ExplicitNoCa;
     params.distinguished_name.push(DnType::CommonName, domain);
     params.use_authority_key_identifier_extension = true;
-    params.key_usages.push(KeyUsagePurpose::DigitalSignature);
-    params
-        .extended_key_usages
-        .push(ExtendedKeyUsagePurpose::ServerAuth);
-    params
-        .extended_key_usages
-        .push(ExtendedKeyUsagePurpose::ClientAuth);
+    // params.key_usages.push(KeyUsagePurpose::DigitalSignature);
+
+    if client {
+        params
+            .extended_key_usages
+            .push(ExtendedKeyUsagePurpose::ClientAuth);
+    }
+    else {
+        params
+            .extended_key_usages
+            .push(ExtendedKeyUsagePurpose::ServerAuth);
+    }
 
     params.not_before = yesterday;
     params.not_after = tomorrow;
