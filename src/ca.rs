@@ -121,10 +121,14 @@ pub fn new_end_entity(domain: &str, ca: &Certificate, ca_key: &KeyPair, client: 
     (cert, key_pair)
 }
 
+const CERT_VALIDITY_DAYS: u32 = 365;
+
 fn validity_period() -> (OffsetDateTime, OffsetDateTime) {
-    let days = Duration::new(86400, 0) * 10;
-    let yesterday = OffsetDateTime::now_utc().checked_sub(days).unwrap();
-    let tomorrow = OffsetDateTime::now_utc().checked_add(days).unwrap();
-    (yesterday, tomorrow)
+    let day = Duration::new(86400, 0);
+    let days = day * CERT_VALIDITY_DAYS;
+    let yesterday = OffsetDateTime::now_utc().checked_sub(day).unwrap();
+    let expiry = OffsetDateTime::now_utc().checked_add(days).unwrap();
+
+    (yesterday, expiry)
 }
 
