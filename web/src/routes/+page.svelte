@@ -13,6 +13,7 @@
   let name = '';
   let domain = '';
   let folder = '';
+  let client = false;
   let showModal = false;
 
   const loadCerts = async () => {
@@ -21,7 +22,7 @@
   };
 
   const generateCert = async () => {
-    await fetch(`https://localhost:6969/generate?name=${name}&domain=${domain}&folder=${folder}`);
+    await fetch(`https://localhost:6969/generate?name=${name}&domain=${domain}&folder=${folder}&client=${client}`);
     showModal = false;
     name = domain = folder = '';
     await loadCerts();
@@ -72,6 +73,8 @@
         <input class="w-full border p-2 rounded" placeholder="Name" bind:value={name} />
         <input class="w-full border p-2 rounded" placeholder="Domain" bind:value={domain} />
         <input class="w-full border p-2 rounded" placeholder="Folder" bind:value={folder} />
+        <label for="client">Client (mTLS) Cert?</label>
+        <input name="client" class="rounded" type="checkbox" bind:checked={client} />
         <div class="flex justify-end gap-2">
           <button class="px-4 py-2 border rounded" on:click={() => (showModal = false)}>Cancel</button>
           <button class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700" on:click={generateCert}>Generate</button>
